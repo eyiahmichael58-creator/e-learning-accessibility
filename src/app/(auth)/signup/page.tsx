@@ -50,7 +50,19 @@ export default function SignupPage() {
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium text-slate-700 block">Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+          <input
+            type="password"
+            name="password"
+            autoComplete="new-password"
+            autoCapitalize="none"
+            autoCorrect="off"
+            inputMode="text"
+            spellCheck={false}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+          />
         </div>
         <button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
           {loading ? 'Creating Account...' : 'Register'}
