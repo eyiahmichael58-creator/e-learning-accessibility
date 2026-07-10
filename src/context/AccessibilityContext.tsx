@@ -1,84 +1,87 @@
 'use client';
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useAuth } from './AuthContext';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/context/AuthContext';
 
 type FontSize = 'small' | 'medium' | 'large' | 'xlarge';
+type ThemeMode = 'light' | 'high-contrast-dark';
 
 interface AccessibilityContextType {
   fontSize: FontSize;
   setFontSize: (size: FontSize) => void;
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
   speechControlEnabled: boolean;
   setSpeechControlEnabled: (enabled: boolean) => void;
 }
 
 const AccessibilityContext = createContext<AccessibilityContextType | undefined>(undefined);
 
+const fontClassMap = {
+  small: 'text-sm tracking-normal',
+  medium: 'text-base tracking-normal md:text-lg',
+  large: 'text-xl tracking-wide md:text-2xl font-medium',
+  xlarge: 'text-3xl tracking-widest md:text-4xl font-bold leading-relaxed',
+};
+
 export function AccessibilityProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const supabase = createClient();
 
   const [fontSize, setFontSizeState] = useState<FontSize>('medium');
-  const [speechControlEnabled, setSpeechControlEnabledState] = useState(false);
+  const [theme, setThemeState] = useState<ThemeMode>('light');
+  const [speechControlEnabled, setSpeechControlEnabled] = useState(false);
 
-  // 1. Fetch user's saved layout configuration from Supabase profile table
+  // Load preferences from database when user logs in
   useEffect(() => {
     async function loadPreferences() {
       if (!user) return;
-      
       const { data, error } = await supabase
         .from('profiles')
-        .select('font_size_preference, speech_control_enabled')
+        .select('font_size, theme_preference')
         .eq('id', user.id)
         .single();
 
       if (data && !error) {
-        if (data.font_size_preference) setFontSizeState(data.font_size_preference as FontSize);
-        if (data.speech_control_enabled !== null) setSpeechControlEnabledState(data.speech_control_enabled);
+        if (data.font_size) setFontSizeState(data.font_size as FontSize);
+        if (data.theme_preference) setThemeState(data.theme_preference as ThemeMode);
       }
     }
     loadPreferences();
   }, [user, supabase]);
 
-  // 2. Wrap setting updates to push values asynchronously to Supabase
+  // Sync font size changes to DB
   const setFontSize = async (size: FontSize) => {
     setFontSizeState(size);
-    if (!user) return;
-    
-    await supabase
-      .from('profiles')
-      .update({ font_size_preference: size })
-      .eq('id', user.id);
+    if (user) {
+      await supabase.from('profiles').update({ font_size: size }).eq('id', user.id);
+    }
   };
 
-  const setSpeechControlEnabled = async (enabled: boolean) => {
-    setSpeechControlEnabledState(enabled);
-    if (!user) return;
-
-    await supabase
-      .from('profiles')
-      .update({ speech_control_enabled: enabled })
-      .eq('id', user.id);
+  // Sync theme changes to DB
+  const setTheme = async (newTheme: ThemeMode) => {
+    setThemeState(newTheme);
+    if (user) {
+      await supabase.from('profiles').update({ theme_preference: newTheme }).eq('id', user.id);
+    }
   };
 
-  const fontClassMap = {
-    small: 'text-sm',
-    medium: 'text-base',
-    large: 'text-lg',
-    xlarge: 'text-xl'
-  };
+  // Build the dynamic application wrapper layout classes based on preference selections
+  const themeClasses = theme === 'high-contrast-dark' 
+    ? 'bg-zinc-950 text-white select-contrast border-yellow-400' 
+    : 'bg-white text-slate-900';
 
   return (
-    <AccessibilityContext.Provider value={{ fontSize, setFontSize, speechControlEnabled, setSpeechControlEnabled }}>
-      <div className={fontClassMap[fontSize]}>
+    <AccessibilityContext.Provider value={{ fontSize, setFontSize, theme, setTheme, speechControlEnabled, setSpeechControlEnabled }}>
+      <div className={`${fontClassMap[fontSize]} ${themeClasses} min-h-screen w-full transition-colors duration-200`}>
         {children}
       </div>
     </AccessibilityContext.Provider>
   );
 }
 
-export const useAccessibility = () => {
+export function useAccessibility() {
   const context = useContext(AccessibilityContext);
   if (!context) throw new Error('useAccessibility must be used within an AccessibilityProvider');
   return context;
-};
+}

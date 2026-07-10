@@ -1,63 +1,73 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
-export const useTextToSpeech = () => {
+export function useTextToSpeech() {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [synth, setSynth] = useState<SpeechSynthesis | null>(null);
-  const [utterance, setUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+  
+  // This ref is the magic fix! It stops the browser from deleting the audio object.
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
-  useEffect(() => {
+  const stop = useCallback(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      setSynth(window.speechSynthesis);
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
     }
   }, []);
 
   const speak = useCallback((text: string) => {
-    if (!synth) return;
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      console.error('Speech API not found.');
+      return;
+    }
 
-    // Cancel any ongoing speech before starting a new one
-    synth.cancel();
+    // Clear the queue
+    window.speechSynthesis.cancel();
 
-    const u = new SpeechSynthesisUtterance(text);
+    // Create the audio package
+    const utterance = new SpeechSynthesisUtterance(text);
     
-    u.onstart = () => {
-      setIsPlaying(true);
-      setIsPaused(false);
+    // Save it to the ref so the browser's garbage collector doesn't destroy it
+    utteranceRef.current = utterance; 
+
+    // Fetch available voices (forces the browser to initialize its audio engine)
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      // Try to grab a default English voice, or fallback to the system's first voice
+      utterance.voice = voices.find(v => v.lang.includes('en')) || voices[0];
+    }
+
+    utterance.rate = 0.95;
+
+    utterance.onstart = () => setIsPlaying(true);
+    
+    utterance.onend = () => {
+      setIsPlaying(false);
+      utteranceRef.current = null; // Clean up memory when done
     };
     
-    u.onend = () => {
+    utterance.onerror = (event) => {
+      if (event.error !== 'interrupted' && event.error !== 'canceled') {
+        console.error('SpeechSynthesis Error:', event.error);
+      }
       setIsPlaying(false);
-      setIsPaused(false);
+      utteranceRef.current = null;
     };
 
-    u.onerror = () => {
-      setIsPlaying(false);
-      setIsPaused(false);
+    // Delay the actual speak command by 50ms to allow React's main thread to breathe
+    setTimeout(() => {
+      window.speechSynthesis.speak(utterance);
+    }, 50);
+
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     };
+  }, []);
 
-    setUtterance(u);
-    synth.speak(u);
-  }, [synth]);
-
-  const stop = useCallback(() => {
-    if (!synth) return;
-    synth.cancel();
-    setIsPlaying(false);
-    setIsPaused(false);
-  }, [synth]);
-
-  const pause = useCallback(() => {
-    if (!synth || !isPlaying) return;
-    synth.pause();
-    setIsPaused(true);
-  }, [synth, isPlaying]);
-
-  const resume = useCallback(() => {
-    if (!synth || !isPaused) return;
-    synth.resume();
-    setIsPaused(false);
-  }, [synth, isPaused]);
-
-  return { speak, stop, pause, resume, isPlaying, isPaused };
-};
+  return { speak, stop, isPlaying };
+}
